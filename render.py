@@ -127,6 +127,7 @@ def render_set(model_path, name, iteration, views, gaussians_sets, pipeline, bac
     masks_path = os.path.join(model_path, name, "ours_{}".format(iteration), "masks")
     mesh_path = os.path.join(model_path, name, "ours_{}".format(iteration), "meshs")
     processed_mesh_path = os.path.join(model_path, name, "ours_{}".format(iteration), "processed_meshs")
+    point_cloud_path = os.path.join(model_path, name, "ours_{}".format(iteration), "pcd")
     normal_path = os.path.join(model_path, name, "ours_{}".format(iteration), "normals")
     dnorm = os.path.join(model_path, name, "ours_{}".format(iteration), "dnormals")
 
@@ -137,6 +138,7 @@ def render_set(model_path, name, iteration, views, gaussians_sets, pipeline, bac
     makedirs(masks_path, exist_ok=True)
     makedirs(mesh_path, exist_ok=True)
     makedirs(processed_mesh_path, exist_ok=True)
+    makedirs(point_cloud_path, exist_ok=True)
     makedirs(normal_path, exist_ok=True)
     makedirs(dnorm, exist_ok=True)
     
@@ -334,10 +336,10 @@ def render_set(model_path, name, iteration, views, gaussians_sets, pipeline, bac
 
     if reconstruct:
         print('file name:', name)
-        reconstruct_point_cloud(render_images, mask_list, render_depths, camera_parameters, name, crop_size)
+        reconstruct_point_cloud(render_images, mask_list, render_depths, camera_parameters, point_cloud_path, crop_size)
 
-def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,
-                 max_depth : float, voxel_size : float, num_cluster: int, use_depth_filter : bool, skip_video: bool, reconstruct_train: bool, reconstruct_test: bool, reconstruct_video: bool):
+def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, skip_video: bool,
+                 max_depth : float, voxel_size : float, num_cluster: int, use_depth_filter : bool, reconstruct_train: bool, reconstruct_test: bool, reconstruct_video: bool):
     with torch.no_grad():
         # num_frame_per_set = opt.frame_segmented
         # last set got more not divided
@@ -363,11 +365,9 @@ def render_sets(dataset : ModelParams, hyperparam, iteration : int, pipeline : P
         if not skip_video:
             render_set(dataset.model_path,"video",scene.loaded_iter, scene.getVideoCameras(),gaussians_sets,pipeline,background, voxel_size, num_cluster, False, render_test=True, reconstruct=reconstruct_video, crop_size=20)
 
-def reconstruct_point_cloud(images, masks, depths, camera_parameters, name, crop_left_size=0):
+def reconstruct_point_cloud(images, masks, depths, camera_parameters, output_frame_folder, crop_left_size=0):
     import cv2
     import copy
-    output_frame_folder = os.path.join("reconstruct", name)
-    os.makedirs(output_frame_folder, exist_ok=True)
     frames = np.arange(len(images))
     # frames = [0]
     focal_x, focal_y, width, height = camera_parameters

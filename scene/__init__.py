@@ -45,7 +45,7 @@ class Scene:
             scene_info, endo_dataset = sceneLoadTypeCallbacks["endonerf"](args.source_path)
             print("Found poses_bounds.py and extra marks with EndoNeRf")
         elif os.path.exists(os.path.join(args.source_path, "point_cloud.obj")) or os.path.exists(os.path.join(args.source_path, "left_point_cloud.obj")):
-            scene_info = sceneLoadTypeCallbacks["scared"](args.source_path, args.white_background, args.eval)
+            scene_info, endo_dataset = sceneLoadTypeCallbacks["scared"](args.source_path)
             print("Found point_cloud.obj, assuming SCARED data!")
         else:
             assert False, "Could not recognize scene type!"

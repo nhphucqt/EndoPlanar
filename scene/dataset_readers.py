@@ -151,6 +151,46 @@ def generateCamerasFromTransforms(path, template_transformsfile, extension, maxt
                             time = time))
     return cam_infos
 
+def readScaredInfo(datadir):
+    # load camera infos
+    from scene.endo_loader import SCARED_Dataset
+    scared_dataset = SCARED_Dataset(
+        datadir=datadir,
+        downsample=1.0,
+    )
+    train_cam_infos = scared_dataset.format_infos(split="train")
+    test_cam_infos = scared_dataset.format_infos(split="test")
+    video_cam_infos = scared_dataset.format_infos(split="video")
+    
+    # get normalizations
+    nerf_normalization = getNerfppNorm(train_cam_infos)
+
+    # initialize sparse point clouds
+    ply_path = os.path.join(datadir, "points3d.ply")
+    # xyz, rgb, normals = endo_dataset.get_sparse_pts()
+    
+    # normals = np.random.random((xyz.shape[0], 3))
+    # pcd = BasicPointCloud(points=xyz, colors=rgb, normals=normals)
+    # storePly(ply_path, xyz,rgb*255)
+
+    # try:
+    #     pcd = fetchPly(ply_path)
+    # except:
+    #     pcd = None
+    
+    # get the maximum time
+    maxtime = scared_dataset.get_maxtime()
+    
+    scene_info = SceneInfo(point_cloud=None,
+                           train_cameras=train_cam_infos,
+                           test_cameras=test_cam_infos,
+                           video_cameras=video_cam_infos,
+                           nerf_normalization=nerf_normalization,
+                           ply_path=ply_path,
+                           maxtime=maxtime)
+
+    return scene_info, scared_dataset
+
 def readEndoNeRFInfo(datadir):
     # load camera infos
     from scene.endo_loader import EndoNeRF_Dataset
@@ -160,7 +200,8 @@ def readEndoNeRFInfo(datadir):
     )
     train_cam_infos = endo_dataset.format_infos(split="train")
     test_cam_infos = endo_dataset.format_infos(split="test")
-    video_cam_infos = endo_dataset.format_infos(split="video")
+    # video_cam_infos = endo_dataset.format_infos(split="video")
+    video_cam_infos = sorted(train_cam_infos + test_cam_infos, key=lambda x: x.time)
     
     # get normalizations
     nerf_normalization = getNerfppNorm(train_cam_infos)
@@ -195,4 +236,5 @@ def readEndoNeRFInfo(datadir):
 
 sceneLoadTypeCallbacks = {
     "endonerf": readEndoNeRFInfo,
+    "scared": readScaredInfo,
 }

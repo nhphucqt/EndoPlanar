@@ -327,22 +327,21 @@ class GaussianModel:
                                                     max_steps=training_args.position_lr_max_steps) 
 
     def get_deform_opacity(self, t):
-        _opacities_time_coefs = self._opacities_time_coefs.reshape(self._xyz.shape[0], 1, self.args.curve_num, 3)
-        means      = _opacities_time_coefs[..., 0]  # shape (N,3,SH_size,curve_num)
-        sigmas = _opacities_time_coefs[..., 1]  # shape (N,3,SH_size,curve_num)
-        amplitudes = _opacities_time_coefs[..., 2]  # shape (N,3,SH_size,curve_num)
-        means      = self._opacities_time_coefs[..., 0]  # shape (N,1,SH_size,curve_num)
-        sigmas = self._opacities_time_coefs[..., 1]  # shape (N,1,SH_size,curve_num)
-        amplitudes = self._opacities_time_coefs[..., 2]  # shape (N,1,SH_size,curve_num)
+        coefs = self._opacities_time_coefs.reshape(self._xyz.shape[0], 1, 3, self.args.curve_num)
+        amplitudes = coefs[:, :, 0, :]
+        means = coefs[:, :, 1, :]
+        sigmas = coefs[:, :, 2, :]
         
         # Make t broadcastable:
         # If t is a scalar, do e.g.: (t - means) -> same shape as 'means'
-        gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        # gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        gauss = amplitudes * torch.exp(-((t - means)**2 / (sigmas**2+1e-4)).pow(2))
 
         # Sum over the curve_num dimension (=-2). That yields shape (N,3,SH_size).
         delta_op = gauss.sum(dim=-1)
 
-        deform_op = self.opacity_activation(self._opacity + delta_op)
+        # deform_op = self.opacity_activation(self._opacity + delta_op)
+        deform_op = self._opacity + delta_op
         
         return deform_op
 
@@ -350,14 +349,15 @@ class GaussianModel:
 
         # Suppose shape is: (N, 3, SH_size, curve_num, 3)
         # We'll name them for clarity:
-        _sh_time_coefs = self._sh_time_coefs.reshape(self._xyz.shape[0], 3, (self.max_sh_degree + 1)**2, self.args.curve_num, 3)
-        means      = _sh_time_coefs[..., 0]  # shape (N,3,SH_size,curve_num)
-        sigmas = _sh_time_coefs[..., 1]  # shape (N,3,SH_size,curve_num)
-        amplitudes = _sh_time_coefs[..., 2]  # shape (N,3,SH_size,curve_num)
-        
+        coefs = self._sh_time_coefs.reshape(self._xyz.shape[0], 3, 3, (self.max_sh_degree + 1) ** 2, self.args.curve_num)
+        amplitudes = coefs[:, :, 0, :, :]
+        means = coefs[:, :, 1, :, :]
+        sigmas = coefs[:, :, 2, :, :]
+
         # Make t broadcastable:
         # If t is a scalar, do e.g.: (t - means) -> same shape as 'means'
-        gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        # gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        gauss = amplitudes * torch.exp(-((t - means)**2 / (sigmas**2+1e-4)).pow(2))
 
         # Sum over the curve_num dimension (=-2). That yields shape (N,3,SH_size).
         delta_sh = gauss.sum(dim=-1)

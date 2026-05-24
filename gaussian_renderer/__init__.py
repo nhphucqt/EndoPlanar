@@ -126,7 +126,11 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
                                                                          rotations[deformation_point],
                                                                          ori_time)
     # opacity_final = pc.get_deform_opacity(ori_time)
-    opacity_deform = pc._opacity
+    use_deform_opacity = False
+    if use_deform_opacity:
+        opacity_deform = pc.get_deform_opacity(ori_time)
+    else:
+        opacity_deform = pc._opacity
         
     # print(time.max())
     with torch.no_grad():
@@ -148,7 +152,8 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
     scales_final = pc.scaling_activation(scales_final)
     # print("\n\n\n\n", scales_final)
     rotations_final = pc.rotation_activation(rotations_final)
-    opacity_final = pc.opacity_activation(opacity)
+    # opacity_final = pc.opacity_activation(opacity)
+    opacity_final = pc.opacity_activation(opacity_final)
 
     # means3D_final = means3D_final.cuda()
     # rotations_final = rotations_final.cuda()
@@ -245,11 +250,20 @@ def render(viewpoint_camera, pc, pipe, bg_color : torch.Tensor, scaling_modifier
     # input_all_map[:, 4] = local_distance
     
 
+    use_deform_color = False
+    if use_deform_color:
+        shs_deform = pc.get_deform_sh(ori_time)
+        shs_final = torch.zeros_like(pc.get_features)
+        shs_final[deformation_point] = shs_deform[deformation_point]
+        shs_final[~deformation_point] = pc.get_features[~deformation_point]
+    else:
+        shs_final = shs
+    
     rendered_image, radii, out_observe, out_all_map, plane_depth = rasterizer(
             means3D = means3D_final,
             means2D = means2D,
             means2D_abs = means2D_abs,
-            shs = shs,
+            shs = shs_final,
             colors_precomp = colors_precomp,
             opacities = opacity_final,
             scales = scales_final,

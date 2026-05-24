@@ -251,10 +251,9 @@ def scene_reconstruction(dataset, opt, hyper, pipe, testing_iterations, saving_i
         # sampling one idx/time_step in dataset
         # seem like stocastic GD with batch size 1?
         # ???? epoch ????
-        # idx = randint(0, len(viewpoint_stack)-1)
-        # viewpoint_cams = [viewpoint_stack[idx]]
-        viewpoint_cams = [viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))]
-        # viewpoint_cams = [viewpoint_stack[0]]
+        idx = randint(0, len(viewpoint_stack)-1)
+        viewpoint_cams = [viewpoint_stack[idx]]
+        # viewpoint_cams = [viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))]
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
             weights_dict = compute_ratio_weights_from_psnr(psnr_dict)
@@ -561,13 +560,14 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[i*500 for i in range(0,120)])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[6000,])
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--expname", type=str, default = "endonerf/pulling_fdm")
     parser.add_argument("--configs", type=str, default = "arguments/endonerf/default.py")
     args = parser.parse_args(sys.argv[1:])
+    args.save_iterations.append(args.iterations)
     if args.configs:
         import mmcv
         from utils.params_utils import merge_hparams
@@ -577,7 +577,6 @@ if __name__ == "__main__":
 
     # Initialize system state (RNG)
     safe_state(args.quiet)
-    args.save_iterations.append(args.iterations)
 
     # Start GUI server, configure and run training
     # network_gui.init(args.ip, args.port)

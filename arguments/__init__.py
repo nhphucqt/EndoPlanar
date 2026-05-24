@@ -149,6 +149,9 @@ class OptimizationParams(ParamGroup):
         self.densify_grad_threshold_abs_fine_init = 0.0008
         self.densify_grad_threshold_abs_after = 0.0008
         self.densify_grad_threshold_abs_coarse = 0.0008
+        # self.densify_grad_threshold_abs_fine_init = 0.0002
+        # self.densify_grad_threshold_abs_after = 0.0002
+        # self.densify_grad_threshold_abs_coarse = 0.0002
 
         self.abs_split_radii2D_threshold = 20
         self.max_abs_split_points = 50_000

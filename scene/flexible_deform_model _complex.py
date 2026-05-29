@@ -247,10 +247,26 @@ class GaussianModel:
         _coefs = torch.stack((weight_coefs, position_coefs, shape_coefs), dim=2).reshape(N,-1).float().to("cuda")
         print(_coefs.shape)
 
+        # 3, (self.max_sh_degree + 1)**2) => coef number
+        # self.args.curve_num, 3 => curve per coef => 3 from mean, variance, weight
+        sh_weight_coefs = torch.zeros((N, 3, (self.max_sh_degree + 1)**2, self.args.curve_num))
+        sh_position_coefs = torch.zeros((N, 3, (self.max_sh_degree + 1)**2, self.args.curve_num)) + torch.linspace(0,1,self.args.curve_num)
+        # sigma for control shape of a basis
+        sh_shape_coefs = torch.zeros((N, 3, (self.max_sh_degree + 1)**2, self.args.curve_num)) + self.args.init_param
+        SH_ = torch.stack((sh_weight_coefs, sh_position_coefs, sh_shape_coefs), dim=2).reshape(N,-1).float().to("cuda")
+        # Now shape is (N, ch_num, 3, curve_num)
+        self._sh_time_coefs = nn.Parameter(SH_.requires_grad_(True))
         self._coefs = nn.Parameter(_coefs.requires_grad_(True))
 
         # initialize opacity
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+        op_weight_coefs = torch.zeros((N, 1, self.args.curve_num))
+        op_position_coefs = torch.zeros((N, 1, self.args.curve_num)) + torch.linspace(self.get_normalized_time_with_offset(self.min_time_idx),self.get_normalized_time_with_offset(self.max_time_idx),self.args.curve_num)
+        # sigma for control opape of a basis
+        op_shape_coefs = torch.zeros((N, 1, self.args.curve_num)) + self.args.init_param
+        op_ = torch.stack((op_weight_coefs, op_position_coefs, op_shape_coefs), dim=2).reshape(N,-1).float().to("cuda")
+        self._opacities_time_coefs = nn.Parameter(op_.requires_grad_(True))
+
 
         # assign to params mentioned in __init__
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
@@ -287,6 +303,8 @@ class GaussianModel:
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             {'params': [self._coefs], 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "coefs"},
+            {'params': [self._sh_time_coefs], 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "sh_time_coefs"},
+            {'params': [self._opacities_time_coefs], 'lr': training_args.deformation_lr_init * self.spatial_lr_scale, "name": "opacities_time_coefs"}
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
@@ -299,6 +317,55 @@ class GaussianModel:
                                                     lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.deformation_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps) 
+        self.sh_deformation_scheduler_args = get_expon_lr_func(lr_init=training_args.deformation_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.deformation_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps) 
+        self.op_deformation_scheduler_args = get_expon_lr_func(lr_init=training_args.deformation_lr_init*self.spatial_lr_scale,
+                                                    lr_final=training_args.deformation_lr_final*self.spatial_lr_scale,
+                                                    lr_delay_mult=training_args.deformation_lr_delay_mult,
+                                                    max_steps=training_args.position_lr_max_steps) 
+
+    def get_deform_opacity(self, t):
+        coefs = self._opacities_time_coefs.reshape(self._xyz.shape[0], 1, 3, self.args.curve_num)
+        amplitudes = coefs[:, :, 0, :]
+        means = coefs[:, :, 1, :]
+        sigmas = coefs[:, :, 2, :]
+        
+        # Make t broadcastable:
+        # If t is a scalar, do e.g.: (t - means) -> same shape as 'means'
+        # gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        gauss = amplitudes * torch.exp(-((t - means)**2 / (sigmas**2+1e-4)).pow(2))
+
+        # Sum over the curve_num dimension (=-2). That yields shape (N,3,SH_size).
+        delta_op = gauss.sum(dim=-1)
+
+        # deform_op = self.opacity_activation(self._opacity + delta_op)
+        deform_op = self._opacity + delta_op
+        
+        return deform_op
+
+    def get_deform_sh(self, t):
+
+        # Suppose shape is: (N, 3, SH_size, curve_num, 3)
+        # We'll name them for clarity:
+        coefs = self._sh_time_coefs.reshape(self._xyz.shape[0], 3, 3, (self.max_sh_degree + 1) ** 2, self.args.curve_num)
+        amplitudes = coefs[:, :, 0, :, :]
+        means = coefs[:, :, 1, :, :]
+        sigmas = coefs[:, :, 2, :, :]
+
+        # Make t broadcastable:
+        # If t is a scalar, do e.g.: (t - means) -> same shape as 'means'
+        # gauss = amplitudes * torch.exp(-0.5 * ((t - means) / (sigmas**2+1e-4)).pow(2))
+        gauss = amplitudes * torch.exp(-((t - means)**2 / (sigmas**2+1e-4)).pow(2))
+
+        # Sum over the curve_num dimension (=-2). That yields shape (N,3,SH_size).
+        delta_sh = gauss.sum(dim=-1)
+        delta_sh = delta_sh.permute(0, 2, 1)
+
+        deform_sh = self.get_features + delta_sh
+        
+        return deform_sh
 
     def clip_grad(self, norm=1.0):
         for group in self.optimizer.param_groups:
@@ -318,6 +385,13 @@ class GaussianModel:
                 lr = self.deformation_scheduler_args(iteration)
                 param_group['lr'] = lr
                 # return lr
+            if param_group["name"] == "sh_time_coefs":
+                lr = self.sh_deformation_scheduler_args(iteration)
+                param_group['lr'] = lr
+
+            if param_group["name"] == "opacities_time_coefs":
+                lr = self.op_deformation_scheduler_args(iteration)
+                param_group['lr'] = lr
 
     def load_model(self, path):
         print("loading model from exists{}".format(path))
@@ -347,6 +421,10 @@ class GaussianModel:
             l.append('rot_{}'.format(i))
         for i in range(self._coefs.shape[1]):
             l.append('coefs_{}'.format(i))
+        for i in range(self._sh_time_coefs.shape[1]):
+            l.append(f'sh_time_coefs_{i}')
+        for i in range(self._opacities_time_coefs.shape[1]):
+            l.append(f'opacities_time_coefs_{i}')
         l.append('center_time_idx')
         l.append('min_time_idx')
         l.append('max_time_idx')
@@ -394,6 +472,33 @@ class GaussianModel:
         for idx, attr_name in enumerate(coef_names):
             coefs[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
+        sh_time_coefs_names = [
+            p.name for p in plydata.elements[0].properties
+            if p.name.startswith("sh_time_coefs_")
+        ]
+        # Sort them so we read them in the original order
+        sh_time_coefs_names = sorted(
+            sh_time_coefs_names,
+            key=lambda x: int(x.split('_')[-1])  # e.g. "sh_time_coefs_123"
+        )
+        # Create an array of shape (N, num_sh_time_coefs)
+        sh_time_coefs_data = np.zeros((xyz.shape[0], len(sh_time_coefs_names)), dtype=np.float32)
+        for idx, attr_name in enumerate(sh_time_coefs_names):
+            sh_time_coefs_data[:, idx] = np.asarray(plydata.elements[0][attr_name], dtype=np.float32)
+        
+
+        opacities_time_coefs_names = [
+            p.name for p in plydata.elements[0].properties
+            if p.name.startswith("opacities_time_coefs_")
+        ]
+        opacities_time_coefs_names = sorted(
+            opacities_time_coefs_names,
+            key=lambda x: int(x.split('_')[-1])
+        )
+        opacities_time_coefs_data = np.zeros((xyz.shape[0], len(opacities_time_coefs_names)), dtype=np.float32)
+        for idx, attr_name in enumerate(opacities_time_coefs_names):
+            opacities_time_coefs_data[:, idx] = np.asarray(plydata.elements[0][attr_name], dtype=np.float32)
+
         # --- load the three new attributes ---
         try:
             center_time_idx_data = np.asarray(plydata.elements[0]["center_time_idx"], dtype=np.float32)
@@ -407,6 +512,16 @@ class GaussianModel:
             self.center_time_idx = 0
             self.min_time_idx    = 0
             self.max_time_idx    = 1
+        
+        # Turn into a learnable parameter
+        self._sh_time_coefs = nn.Parameter(
+            torch.tensor(sh_time_coefs_data, dtype=torch.float, device="cuda")
+                .requires_grad_(True)
+        )
+        self._opacities_time_coefs = nn.Parameter(
+            torch.tensor(opacities_time_coefs_data, dtype=torch.float, device="cuda")
+                .requires_grad_(True)
+        )
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
@@ -428,6 +543,8 @@ class GaussianModel:
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         coefs = self._coefs.detach().cpu().numpy()
+        sh_time_coefs = self._sh_time_coefs.detach().cpu().numpy()
+        opacities_time_coefs = self._opacities_time_coefs.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
         N = xyz.shape[0]
         center_col = np.full((N, 1), self.center_time_idx, dtype=np.float32)
@@ -448,6 +565,8 @@ class GaussianModel:
             scale, 
             rotation, 
             coefs, 
+            sh_time_coefs, 
+            opacities_time_coefs, 
             center_col,          
             min_col,             
             max_col              
@@ -518,6 +637,8 @@ class GaussianModel:
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
         self._coefs = optimizable_tensors["coefs"]
+        self._sh_time_coefs = optimizable_tensors["sh_time_coefs"]
+        self._opacities_time_coefs = optimizable_tensors["opacities_time_coefs"]
 
         # apply mask to state variable used in optimization process
         self._deformation_accum = self._deformation_accum[valid_points_mask]
@@ -555,7 +676,7 @@ class GaussianModel:
         return optimizable_tensors
 
     # input new Guassian, call cat_tensors_to_optimizer(self, tensors_dict) and update state
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table, new_sh_time_coefs, new_opacities_time_coefs):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -563,6 +684,8 @@ class GaussianModel:
         "scaling" : new_scaling,
         "rotation" : new_rotation,
         "coefs": new_coefs,
+        "sh_time_coefs": new_sh_time_coefs,
+        "opacities_time_coefs": new_opacities_time_coefs
        }
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
@@ -573,6 +696,8 @@ class GaussianModel:
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
         self._coefs = optimizable_tensors["coefs"]
+        self._sh_time_coefs = optimizable_tensors["sh_time_coefs"]
+        self._opacities_time_coefs = optimizable_tensors["opacities_time_coefs"]
         
         self._deformation_table = torch.cat([self._deformation_table,new_deformation_table],-1)
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -627,9 +752,11 @@ class GaussianModel:
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacities = self._opacity[selected_pts_mask].repeat(N,1)
         new_coefs = self._coefs[selected_pts_mask].repeat(N,1)
+        new_sh_time_coefs = self._sh_time_coefs[selected_pts_mask].repeat(N,1)
+        new_opacities_time_coefs = self._opacities_time_coefs[selected_pts_mask].repeat(N,1)
         new_deformation_table = self._deformation_table[selected_pts_mask].repeat(N)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table, new_sh_time_coefs, new_opacities_time_coefs)
         # del original ones, note that this is possible due to we concat the new one (append it at the back)
         # so the N first indexes are not changing => can use this mask and del them via prune_points directly
         # print(selected_pts_mask.sum(), self.max_opacity.shape)
@@ -668,9 +795,11 @@ class GaussianModel:
             new_scaling = self._scaling[selected_pts_mask]
             new_rotation = self._rotation[selected_pts_mask]
             new_coefs    = self._coefs[selected_pts_mask]
+            new_sh_time_coefs = self._sh_time_coefs[selected_pts_mask]
+            new_opacities_time_coefs = self._opacities_time_coefs[selected_pts_mask]
             new_deformation_table = self._deformation_table[selected_pts_mask]
 
-            self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table)
+            self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_coefs, new_deformation_table, new_sh_time_coefs, new_opacities_time_coefs)
 
     # call prune_points with prune_mask = (self.get_opacity < min_opacity).squeeze()
     def prune(self, max_grad, abs_max_grad, min_opacity, extent, max_screen_size):

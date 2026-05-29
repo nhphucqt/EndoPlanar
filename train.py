@@ -7,6 +7,7 @@
 # under the terms of the LICENSE.md file.
 # For inquiries contact  george.drettakis@inria.fr
 #
+import json
 import numpy as np
 import random
 import os 
@@ -516,6 +517,8 @@ def training(dataset, hyper, opt, pipe, testing_iterations, saving_iterations, c
                          checkpoint_iterations, checkpoint, debug_from,
                          gaussians_sets, scene, tb_writer, opt.iterations,timer)
 
+    return timer
+
 def prepare_output_and_logger(expname):    
     if not args.model_path:
         unique_str = expname
@@ -582,8 +585,21 @@ if __name__ == "__main__":
     # Start GUI server, configure and run training
     # network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, \
+    timer = training(lp.extract(args), hp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, \
         args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, args.expname, args.extra_mark)
+
+    peak_bytes = torch.cuda.max_memory_allocated()
+    print(f"Peak GPU memory used by tensors: {peak_bytes / 1024**2:.2f} MB")
+
+    peak_reserved = torch.cuda.max_memory_reserved()
+    print(f"Peak GPU memory reserved: {peak_reserved / 1024**2:.2f} MB")
+
+    with open(os.path.join(args.model_path, "training_report.json"), 'w') as report_f:
+        json.dump({
+            "training_time_seconds": timer.get_elapsed_time(),
+            "peak_gpu_memory_mb": peak_bytes / 1024**2,
+            "peak_gpu_memory_reserved_mb": peak_reserved / 1024**2,
+        }, report_f)
 
     # All done
     print("\nTraining complete.")

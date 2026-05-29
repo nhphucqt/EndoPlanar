@@ -141,6 +141,12 @@ def render_set(model_path, name, iteration, views, gaussians_sets, pipeline, bac
     makedirs(point_cloud_path, exist_ok=True)
     makedirs(normal_path, exist_ok=True)
     makedirs(dnorm, exist_ok=True)
+
+    num_gaussians = gaussians_sets[0]._xyz.shape[0]
+    print("num_gaussians: ", num_gaussians)
+    # save num_gaussians to a txt file for later use
+    with open(os.path.join(model_path, name, "ours_{}".format(iteration), "num_gaussians.txt"), "w") as f:
+        f.write(str(num_gaussians))
     
     render_images = []
     render_depths = []

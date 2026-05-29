@@ -130,6 +130,15 @@ def evaluate(model_paths):
                 depth_dir = method_dir / "depth"
                 gt_depth_dir = method_dir / "gt_depth"
                 masks_dir = method_dir / "masks"
+
+                with open(method_dir / "num_gaussians.txt", "r") as f:
+                    num_gaussians = int(f.read().strip())
+
+                with open(os.path.join(scene_dir, "training_report.json"), 'r') as report_f:
+                    training_report = json.load(report_f)
+                    training_time_seconds = training_report["training_time_seconds"]
+                    peak_gpu_memory_mb = training_report["peak_gpu_memory_mb"]
+                    peak_gpu_memory_reserved_mb = training_report["peak_gpu_memory_reserved_mb"]
                 
                 renders, gts, depths, gt_depths, masks, image_names = readImages(renders_dir, gt_dir, depth_dir, gt_depth_dir, masks_dir)
 
@@ -149,13 +158,18 @@ def evaluate(model_paths):
                         continue
                     rmses.append(rmse(depth, gt_depth, mask))
                 print(psnrs)
+                print("Scene: ", scene_dir,  "#Gaussians:", num_gaussians)
                 print("Scene: ", scene_dir,  "SSIM : {:>12.7f}".format(torch.tensor(ssims).mean(), ".5"))
                 print("Scene: ", scene_dir,  "PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean(), ".5"))
                 print("Scene: ", scene_dir,  "LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean(), ".5"))
                 print("Scene: ", scene_dir,  "RMSE: {:>12.7f}".format(torch.tensor(rmses).mean(), ".5"))
                 print("")
 
-                full_dict[scene_dir][method].update({"SSIM": torch.tensor(ssims).mean().item(),
+                full_dict[scene_dir][method].update({"Gaussians": num_gaussians,
+                                                        "TrainingTimeSeconds": training_time_seconds,
+                                                        "PeakGPUMemoryMB": peak_gpu_memory_mb,
+                                                        "PeakGPUMemoryReservedMB": peak_gpu_memory_reserved_mb,
+                                                        "SSIM": torch.tensor(ssims).mean().item(),
                                                         "PSNR": torch.tensor(psnrs).mean().item(),
                                                         "LPIPS": torch.tensor(lpipss).mean().item(),
                                                         "RMSE": torch.tensor(rmses).mean().item()})

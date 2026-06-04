@@ -273,7 +273,10 @@ def render_set(model_path, name, iteration, views, gaussians_sets, pipeline, bac
                 stage = 'coarse' if no_fine else 'fine'
                 rendering = render(view, gaussians, pipeline, background, return_depth_normal=False)
         time2=time()
-        print("FPS:",(len(views)-1)*test_times/(time2-time1))
+        fps = (len(views)-1)*test_times/(time2-time1)
+        print("FPS:",fps)
+        with open(os.path.join(model_path, name, "ours_{}".format(iteration), "fps.txt"), "w") as f:
+            f.write(str(fps))
     
     count = 0
     print("writing training images.")

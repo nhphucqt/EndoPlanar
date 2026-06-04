@@ -12,6 +12,13 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .mypy_cache/
+*.cpython*
+
+# Python distribution and packaging files
+*.egg-info/
+.eggs/
+dist/
+build/
 
 # Output & Cache
 output/
@@ -27,5 +34,3 @@ checkpoints/
 
 # Environment
 .env
-
-build/

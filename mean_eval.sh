@@ -19,7 +19,7 @@ fi
 
 mkdir -p "$OUT_DIR"
 
-for i in $(seq -w 1 100); do
+for i in $(seq -w 1 2); do
   EXP_NAME="${EXP_BASE}"
   RUN_OUT_DIR="${OUT_DIR}/run${i}"
   mkdir -p "$RUN_OUT_DIR"

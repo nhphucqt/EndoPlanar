@@ -134,6 +134,9 @@ def evaluate(model_paths):
                 with open(method_dir / "num_gaussians.txt", "r") as f:
                     num_gaussians = int(f.read().strip())
 
+                with open(method_dir / "fps.txt", 'r') as f:
+                    fps = float(f.read().strip())
+
                 with open(os.path.join(scene_dir, "training_report.json"), 'r') as report_f:
                     training_report = json.load(report_f)
                     training_time_seconds = training_report["training_time_seconds"]
@@ -169,6 +172,7 @@ def evaluate(model_paths):
                                                         "TrainingTimeSeconds": training_time_seconds,
                                                         "PeakGPUMemoryMB": peak_gpu_memory_mb,
                                                         "PeakGPUMemoryReservedMB": peak_gpu_memory_reserved_mb,
+                                                        "FPS": fps,
                                                         "SSIM": torch.tensor(ssims).mean().item(),
                                                         "PSNR": torch.tensor(psnrs).mean().item(),
                                                         "LPIPS": torch.tensor(lpipss).mean().item(),

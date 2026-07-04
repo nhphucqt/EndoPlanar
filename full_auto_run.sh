@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OUT_ROOT="output"
-DATA_ROOT="/workspace/data"
+DATA_ROOT="/volume/data"
 
 DATA_PATHS=(
   "endonerf/cutting_tissues_twice"
@@ -56,7 +56,8 @@ for i in "${!DATA_PATHS[@]}"; do
     echo "===== Run $i: $EXP_BASE ====="
 
     python train.py -s "$DATA_PATH" --expname "$EXP_BASE" --configs "$CONFIG"
-    python render.py --model_path "output/$EXP_BASE" --skip_train --skip_video --configs "$CONFIG"
+    # python render.py --model_path "output/$EXP_BASE" --skip_train --skip_video --configs "$CONFIG"
+    python render.py --model_path "output/$EXP_BASE" --skip_train --configs "$CONFIG"
     python metrics.py --model_path "output/$EXP_BASE" -p test
 
     cp "output/$EXP_BASE/per_view.json" "$RUN_OUT_DIR/per_view.json"

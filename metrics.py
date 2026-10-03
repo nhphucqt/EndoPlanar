@@ -134,8 +134,12 @@ def evaluate(model_paths):
                 with open(method_dir / "num_gaussians.txt", "r") as f:
                     num_gaussians = int(f.read().strip())
 
-                with open(method_dir / "fps.txt", 'r') as f:
-                    fps = float(f.read().strip())
+                try:
+                    with open(method_dir / "fps.txt", 'r') as f:
+                        fps = float(f.read().strip())
+                except:
+                    print("Cannot find fps.txt, set fps = 0")
+                    fps = 0.0
 
                 with open(os.path.join(scene_dir, "training_report.json"), 'r') as report_f:
                     training_report = json.load(report_f)
